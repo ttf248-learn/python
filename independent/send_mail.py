@@ -1,12 +1,16 @@
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+import os
 
-# Email configuration
-SMTP_SERVER = "smtpdm.aliyun.com"
-SMTP_PORT = 465  # Use 25, 80, or 465 (SSL)
-EMAIL_ADDRESS = "xiangtl@mail.ttf248.life	"  # Replace with your email address
-EMAIL_PASSWORD = "TeTrbDRnEr5lj6hU"  # Replace with your email password
+# Email configuration from environment variables
+SMTP_SERVER = os.getenv("SMTP_SERVER", "smtpdm.aliyun.com")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 465))  # Default to 465 if not set
+EMAIL_ADDRESS = os.getenv("EMAIL_ADDRESS")  # Must be set in environment
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")  # Must be set in environment
+
+if not EMAIL_ADDRESS or not EMAIL_PASSWORD:
+    raise ValueError("EMAIL_ADDRESS and EMAIL_PASSWORD must be set in environment variables")
 
 def send_email(to_email, subject, body):
     try:
