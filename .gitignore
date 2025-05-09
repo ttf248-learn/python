@@ -1,2 +1,5 @@
 .venv
-.vscode/launch.json
+
+# Email configuration
+scripts/config/.key
+scripts/config/mail_config.enc
