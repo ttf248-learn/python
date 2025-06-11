@@ -5,9 +5,10 @@ import signal
 import sys
 import json
 import logging
-from datetime import datetime
-from typing import Tuple, Optional, Dict, Any
+from datetime import datetime, timedelta
+from typing import Tuple, Optional, Dict, Any, List
 from pathlib import Path
+from collections import deque
 
 class FolderMonitor:
     def __init__(self, folder_path: str, interval_minutes: float, 
@@ -18,6 +19,14 @@ class FolderMonitor:
         self.json_output = json_output
         self.previous_size = None
         self.start_time = datetime.now()
+        
+        # 历史数据存储 - 使用deque限制内存使用
+        self.size_history = deque(maxlen=24*60*7)  # 保留一周的分钟级数据
+        self.last_minute_record = None
+        self.last_hour_record = None
+        self.last_12hour_record = None
+        self.last_day_record = None
+        
         self.setup_logging(log_file)
         self.setup_signal_handlers()
         
@@ -131,8 +140,176 @@ class FolderMonitor:
         self.logger.info(f"监控时长: {duration}")
         self.logger.info(f"监控文件夹: {self.folder_path}")
     
+    def add_size_record(self, size: int):
+        """添加体积记录到历史数据"""
+        now = datetime.now()
+        record = {
+            'timestamp': now,
+            'size': size
+        }
+        self.size_history.append(record)
+        
+        # 初始化基准记录
+        if self.last_minute_record is None:
+            self.last_minute_record = record
+            self.last_hour_record = record
+            self.last_12hour_record = record
+            self.last_day_record = record
+    
+    def calculate_growth_rates(self, current_size: int) -> Dict[str, Any]:
+        """计算各个时间段的增长率"""
+        now = datetime.now()
+        growth_stats = {
+            'per_minute': {'size_change': 0, 'rate': 0, 'available': False},
+            'per_hour': {'size_change': 0, 'rate': 0, 'available': False},
+            'per_12hour': {'size_change': 0, 'rate': 0, 'available': False},
+            'per_day': {'size_change': 0, 'rate': 0, 'available': False}
+        }
+        
+        # 计算每分钟增长率
+        if (self.last_minute_record and 
+            (now - self.last_minute_record['timestamp']).total_seconds() >= 60):
+            
+            time_diff = (now - self.last_minute_record['timestamp']).total_seconds() / 60
+            size_change = current_size - self.last_minute_record['size']
+            growth_stats['per_minute'] = {
+                'size_change': size_change,
+                'rate': size_change / time_diff if time_diff > 0 else 0,
+                'available': True
+            }
+            self.last_minute_record = {'timestamp': now, 'size': current_size}
+        
+        # 计算每小时增长率
+        if (self.last_hour_record and 
+            (now - self.last_hour_record['timestamp']).total_seconds() >= 3600):
+            
+            time_diff = (now - self.last_hour_record['timestamp']).total_seconds() / 3600
+            size_change = current_size - self.last_hour_record['size']
+            growth_stats['per_hour'] = {
+                'size_change': size_change,
+                'rate': size_change / time_diff if time_diff > 0 else 0,
+                'available': True
+            }
+            self.last_hour_record = {'timestamp': now, 'size': current_size}
+        
+        # 计算每12小时增长率
+        if (self.last_12hour_record and 
+            (now - self.last_12hour_record['timestamp']).total_seconds() >= 43200):
+            
+            time_diff = (now - self.last_12hour_record['timestamp']).total_seconds() / 43200
+            size_change = current_size - self.last_12hour_record['size']
+            growth_stats['per_12hour'] = {
+                'size_change': size_change,
+                'rate': size_change / time_diff if time_diff > 0 else 0,
+                'available': True
+            }
+            self.last_12hour_record = {'timestamp': now, 'size': current_size}
+        
+        # 计算每天增长率
+        if (self.last_day_record and 
+            (now - self.last_day_record['timestamp']).total_seconds() >= 86400):
+            
+            time_diff = (now - self.last_day_record['timestamp']).total_seconds() / 86400
+            size_change = current_size - self.last_day_record['size']
+            growth_stats['per_day'] = {
+                'size_change': size_change,
+                'rate': size_change / time_diff if time_diff > 0 else 0,
+                'available': True
+            }
+            self.last_day_record = {'timestamp': now, 'size': current_size}
+        
+        return growth_stats
+    
+    def get_historical_growth(self, current_size: int) -> Dict[str, Any]:
+        """获取基于历史数据的增长统计"""
+        if not self.size_history:
+            return {}
+        
+        now = datetime.now()
+        growth_data = {}
+        
+        # 查找不同时间段的历史记录
+        time_periods = {
+            '1_minute': 60,
+            '1_hour': 3600,
+            '12_hours': 43200,
+            '1_day': 86400
+        }
+        
+        for period_name, seconds in time_periods.items():
+            target_time = now - timedelta(seconds=seconds)
+            
+            # 查找最接近目标时间的记录
+            closest_record = None
+            min_time_diff = float('inf')
+            
+            for record in self.size_history:
+                time_diff = abs((record['timestamp'] - target_time).total_seconds())
+                if time_diff < min_time_diff:
+                    min_time_diff = time_diff
+                    closest_record = record
+            
+            if closest_record and min_time_diff <= seconds * 0.1:  # 允许10%的时间误差
+                actual_time_diff = (now - closest_record['timestamp']).total_seconds()
+                size_change = current_size - closest_record['size']
+                
+                growth_data[period_name] = {
+                    'size_change': size_change,
+                    'time_diff_hours': actual_time_diff / 3600,
+                    'available': True,
+                    'record_time': closest_record['timestamp'].strftime("%Y-%m-%d %H:%M:%S")
+                }
+            else:
+                growth_data[period_name] = {'available': False}
+        
+        return growth_data
+    
+    def format_growth_info(self, growth_stats: Dict[str, Any], 
+                          historical_growth: Dict[str, Any]) -> str:
+        """格式化增长信息"""
+        if not growth_stats and not historical_growth:
+            return ""
+        
+        growth_info = []
+        
+        # 实时增长率（基于固定间隔）
+        if growth_stats:
+            if growth_stats['per_minute']['available']:
+                rate = growth_stats['per_minute']['rate']
+                growth_info.append(f"分钟增长: {self.format_size(int(rate))}/min")
+            
+            if growth_stats['per_hour']['available']:
+                rate = growth_stats['per_hour']['rate']
+                growth_info.append(f"小时增长: {self.format_size(int(rate))}/h")
+            
+            if growth_stats['per_12hour']['available']:
+                rate = growth_stats['per_12hour']['rate']
+                growth_info.append(f"12小时增长: {self.format_size(int(rate))}/12h")
+            
+            if growth_stats['per_day']['available']:
+                rate = growth_stats['per_day']['rate']
+                growth_info.append(f"日增长: {self.format_size(int(rate))}/day")
+        
+        # 历史增长数据
+        if historical_growth:
+            if historical_growth.get('1_hour', {}).get('available'):
+                change = historical_growth['1_hour']['size_change']
+                growth_info.append(f"过去1小时: {self.format_size(int(change))}")
+            
+            if historical_growth.get('12_hours', {}).get('available'):
+                change = historical_growth['12_hours']['size_change']
+                growth_info.append(f"过去12小时: {self.format_size(int(change))}")
+            
+            if historical_growth.get('1_day', {}).get('available'):
+                change = historical_growth['1_day']['size_change']
+                growth_info.append(f"过去24小时: {self.format_size(int(change))}")
+        
+        return " | ".join(growth_info) if growth_info else ""
+
     def format_output(self, timestamp: str, stats: Dict[str, Any], 
-                     size_change: Optional[float] = None) -> str:
+                     size_change: Optional[float] = None, 
+                     growth_stats: Optional[Dict[str, Any]] = None,
+                     historical_growth: Optional[Dict[str, Any]] = None) -> str:
         """格式化输出信息"""
         if self.json_output:
             output_data = {
@@ -148,6 +325,12 @@ class FolderMonitor:
             if size_change is not None:
                 output_data['size_change_bytes'] = size_change
                 output_data['size_change_formatted'] = self.format_size(abs(int(size_change)))
+            
+            if growth_stats:
+                output_data['growth_rates'] = growth_stats
+            
+            if historical_growth:
+                output_data['historical_growth'] = historical_growth
             
             return json.dumps(output_data, ensure_ascii=False, indent=2)
         else:
@@ -170,6 +353,11 @@ class FolderMonitor:
                 largest_size = self.format_size(stats['largest_file']['size'])
                 output += f" | 最大文件: {stats['largest_file']['name']} ({largest_size})"
             
+            # 添加增长信息
+            growth_info = self.format_growth_info(growth_stats or {}, historical_growth or {})
+            if growth_info:
+                output += f"\n    增长统计: {growth_info}"
+            
             return output
     
     def monitor(self):
@@ -191,7 +379,15 @@ class FolderMonitor:
                     if self.previous_size is not None:
                         size_change = current_size - self.previous_size
                     
-                    output = self.format_output(timestamp, stats, size_change)
+                    # 添加到历史记录
+                    self.add_size_record(current_size)
+                    
+                    # 计算增长率
+                    growth_stats = self.calculate_growth_rates(current_size)
+                    historical_growth = self.get_historical_growth(current_size)
+                    
+                    output = self.format_output(timestamp, stats, size_change, 
+                                              growth_stats, historical_growth)
                     self.logger.info(output)
                     
                     self.previous_size = current_size
