@@ -3,7 +3,6 @@ import os
 import time
 import signal
 import sys
-import json
 from loguru import logger
 from datetime import datetime, timedelta
 from typing import Tuple, Optional, Dict, Any, List
@@ -11,12 +10,10 @@ from pathlib import Path
 from collections import deque
 
 class FolderMonitor:
-    def __init__(self, folder_path: str, interval_minutes: float, 
-                 log_file: Optional[str] = None, json_output: bool = False):
+    def __init__(self, folder_path: str, interval_minutes: float):
         self.folder_path = Path(folder_path).resolve()
         self.interval_minutes = interval_minutes
         self.interval_seconds = interval_minutes * 60
-        self.json_output = json_output
         self.previous_size = None
         self.start_time = datetime.now()
         
@@ -27,28 +24,21 @@ class FolderMonitor:
         self.last_12hour_record = None
         self.last_day_record = None
         
-        self.setup_logging(log_file)
+        self.setup_logging()
         self.setup_signal_handlers()
         
-    def setup_logging(self, log_file: Optional[str] = None, log_dir: str = 'log'):
+    def setup_logging(self, log_dir: str = 'log'):
         """设置日志配置"""
-        # 日志库默认输出到终端，移除终端的日志，目前保留终端的日志
-        # logger.remove()
+        # loguru默认输出到终端，同时添加文件日志
+        # 使用默认的日志目录和文件名格式
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
         
-        if log_file:
-            # 如果指定了log_file，使用指定的文件
-            log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
-            logger.add(log_file, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
-        else:
-            # 使用默认的日志目录和文件名格式
-            if not os.path.exists(log_dir):
-                os.makedirs(log_dir)
-            
-            log_file_path = os.path.join(log_dir, 'folder_monitor_{time:YYYY-MM-DD}.log')
-            
-            # 添加日志记录器，按天滚动，并保留30天的日志
-            log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
-            logger.add(log_file_path, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
+        log_file_path = os.path.join(log_dir, 'folder_monitor_{time:YYYY-MM-DD}.log')
+        
+        # 添加日志记录器，按天滚动，并保留30天的日志
+        log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
+        logger.add(log_file_path, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
     
     def setup_signal_handlers(self):
         """设置信号处理器"""
@@ -311,60 +301,36 @@ class FolderMonitor:
                      growth_stats: Optional[Dict[str, Any]] = None,
                      historical_growth: Optional[Dict[str, Any]] = None) -> str:
         """格式化输出信息"""
-        if self.json_output:
-            output_data = {
-                'timestamp': timestamp,
-                'folder_path': str(self.folder_path),
-                'total_size_bytes': stats['total_size'],
-                'total_size_formatted': self.format_size(stats['total_size']),
-                'file_count': stats['file_count'],
-                'folder_count': stats['folder_count'],
-                'largest_file': stats['largest_file']
-            }
-            
-            if size_change is not None:
-                output_data['size_change_bytes'] = size_change
-                output_data['size_change_formatted'] = self.format_size(abs(int(size_change)))
-            
-            if growth_stats:
-                output_data['growth_rates'] = growth_stats
-            
-            if historical_growth:
-                output_data['historical_growth'] = historical_growth
-            
-            return json.dumps(output_data, ensure_ascii=False, indent=2)
-        else:
-            # 文本格式输出
-            size_str = self.format_size(stats['total_size'])
-            
-            change_indicator = ""
-            if size_change is not None:
-                if size_change > 0:
-                    change_indicator = f" (+{self.format_size(int(size_change))})"
-                elif size_change < 0:
-                    change_indicator = f" (-{self.format_size(int(abs(size_change)))})"
-                else:
-                    change_indicator = " (无变化)"
-            
-            output = f"[{timestamp}] 文件夹体积: {size_str}{change_indicator}"
-            output += f" | 文件: {stats['file_count']} | 文件夹: {stats['folder_count']}"
-            
-            if stats['largest_file']['name']:
-                largest_size = self.format_size(stats['largest_file']['size'])
-                output += f" | 最大文件: {stats['largest_file']['name']} ({largest_size})"
-            
-            # 添加增长信息
-            growth_info = self.format_growth_info(growth_stats or {}, historical_growth or {})
-            if growth_info:
-                output += f"\n    增长统计: {growth_info}"
-            
-            return output
+        # 文本格式输出
+        size_str = self.format_size(stats['total_size'])
+        
+        change_indicator = ""
+        if size_change is not None:
+            if size_change > 0:
+                change_indicator = f" (+{self.format_size(int(size_change))})"
+            elif size_change < 0:
+                change_indicator = f" (-{self.format_size(int(abs(size_change)))})"
+            else:
+                change_indicator = " (无变化)"
+        
+        output = f"[{timestamp}] 文件夹体积: {size_str}{change_indicator}"
+        output += f" | 文件: {stats['file_count']} | 文件夹: {stats['folder_count']}"
+        
+        if stats['largest_file']['name']:
+            largest_size = self.format_size(stats['largest_file']['size'])
+            output += f" | 最大文件: {stats['largest_file']['name']} ({largest_size})"
+        
+        # 添加增长信息
+        growth_info = self.format_growth_info(growth_stats or {}, historical_growth or {})
+        if growth_info:
+            output += f"\n    增长统计: {growth_info}"
+        
+        return output
     
     def monitor(self):
         """开始监控"""
         logger.info(f"开始监控文件夹: {self.folder_path}")
         logger.info(f"监控间隔: {self.interval_minutes} 分钟")
-        logger.info(f"输出格式: {'JSON' if self.json_output else '文本'}")
         logger.info("按 Ctrl+C 停止监控\n")
         
         while True:
@@ -414,26 +380,11 @@ def parse_args():
   指定监控间隔:
     python folder_monitor.py "D:\\Downloads" -i 0.5          # 30秒间隔
     python folder_monitor.py "D:\\Downloads" --interval 5    # 5分钟间隔
-  
-  保存日志到文件:
-    python folder_monitor.py "C:\\temp" --log monitor.log
-    python folder_monitor.py "C:\\temp" --log "logs\\monitor_%Y%m%d.log"
-  
-  JSON格式输出:
-    python folder_monitor.py "C:\\temp" --json
-    python folder_monitor.py "C:\\temp" --json --log data.json
-  
-  使用配置文件:
-    python folder_monitor.py "C:\\temp" --config config.json
-  
-  生成示例配置文件:
-    python folder_monitor.py --generate-config
         """
     )
     
     parser.add_argument(
         "folder_path",
-        nargs='?',
         help="要监控的文件夹路径"
     )
     
@@ -444,65 +395,9 @@ def parse_args():
         help="监控间隔，单位分钟 (默认: 1.0)"
     )
     
-    parser.add_argument(
-        "--log",
-        help="日志文件路径，支持时间格式化如 %%Y%%m%%d"
-    )
-    
-    parser.add_argument(
-        "--json",
-        action="store_true",
-        help="使用JSON格式输出"
-    )
-    
-    parser.add_argument(
-        "--config",
-        help="配置文件路径（JSON格式）"
-    )
-    
-    parser.add_argument(
-        "--generate-config",
-        action="store_true",
-        help="生成示例配置文件"
-    )
-    
     return parser.parse_args()
 
-def generate_sample_config():
-    """生成示例配置文件"""
-    config = {
-        "interval": 5.0,
-        "log_file": "logs/folder_monitor_%Y%m%d.log",
-        "json_output": False,
-        "max_retries": 3,
-        "description": "文件夹监控配置文件",
-        "examples": {
-            "short_interval": "间隔30秒: interval = 0.5",
-            "hourly_check": "每小时检查: interval = 60",
-            "json_log": "JSON日志: json_output = true, log_file = 'data.json'"
-        }
-    }
-    
-    config_file = "folder_monitor_config.json"
-    try:
-        with open(config_file, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=4)
-        print(f"示例配置文件已生成: {config_file}")
-        print("\n配置文件内容:")
-        print(json.dumps(config, ensure_ascii=False, indent=2))
-        return True
-    except Exception as e:
-        print(f"生成配置文件失败: {e}")
-        return False
 
-def load_config(config_path: str) -> Dict[str, Any]:
-    """加载配置文件"""
-    try:
-        with open(config_path, 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"错误：无法加载配置文件 {config_path}: {e}")
-        sys.exit(1)
 
 def validate_args(args) -> bool:
     """验证命令行参数"""
@@ -523,15 +418,6 @@ def validate_args(args) -> bool:
     if args.interval < 0.01:  # 优化最小间隔检查
         print("警告：监控间隔过短可能影响系统性能")
     
-    # 验证日志文件路径
-    if args.log:
-        log_path = Path(args.log)
-        try:
-            log_path.parent.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            print(f"错误：无法创建日志文件目录: {e}")
-            return False
-    
     return True
 
 def main():
@@ -539,38 +425,13 @@ def main():
     try:
         args = parse_args()
         
-        # 生成配置文件选项
-        if args.generate_config:
-            generate_sample_config()
-            return
-        
-        # 检查是否提供了文件夹路径
-        if not args.folder_path:
-            print("错误: 请提供要监控的文件夹路径")
-            print("使用 --help 查看详细使用说明")
-            sys.exit(1)
-        
-        # 如果指定了配置文件，从配置文件加载参数
-        if args.config:
-            config = load_config(args.config)
-            # 配置文件中的参数会覆盖命令行参数（除了folder_path）
-            args.interval = config.get('interval', args.interval)
-            args.log = config.get('log_file', args.log)
-            args.json = config.get('json_output', args.json)
-        
-        # 处理日志文件路径中的时间格式化
-        if args.log:
-            args.log = datetime.now().strftime(args.log)
-        
         if not validate_args(args):
             sys.exit(1)
         
         # 创建监控器实例
         monitor = FolderMonitor(
             folder_path=args.folder_path,
-            interval_minutes=args.interval,
-            log_file=args.log,
-            json_output=args.json
+            interval_minutes=args.interval
         )
         
         # 开始监控
