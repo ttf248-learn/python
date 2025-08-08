@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Tuple, Set
-import logging
+from loguru import logger
 import re
 
 class ImageRenamer:
@@ -40,35 +40,39 @@ class ImageRenamer:
         
         self.setup_logging()
     
-    def setup_logging(self):
-        """设置日志记录"""
-        self.logger = logging.getLogger('ImageRenamer')
-        self.logger.setLevel(logging.INFO)
+    def setup_logging(self, log_dir='log'):
+        """设置日志配置"""
+        # 日志库默认输出到终端，移除终端的日志，目前保留终端的日志
+        # logger.remove()
         
-        # 控制台输出
-        console_handler = logging.StreamHandler()
-        console_formatter = logging.Formatter('%(message)s')
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
+        if not os.path.exists(log_dir):
+            os.makedirs(log_dir)
+        
+        log_file = os.path.join(log_dir, 'rename_images_{time:YYYY-MM-DD}.log')
+        
+        # 添加日志记录器，按天滚动，并保留30天的日志
+        # TODO：日志级别的控制，通过环境变量控制，容器启动脚本注入
+        log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
+        logger.add(log_file, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
     
     def validate_source_folder(self) -> bool:
         """验证源文件夹是否存在且可访问"""
         if not self.source_folder.exists():
-            self.logger.error(f"错误：源文件夹不存在: {self.source_folder}")
+            logger.error(f"错误：源文件夹不存在: {self.source_folder}")
             return False
         
         if not self.source_folder.is_dir():
-            self.logger.error(f"错误：指定路径不是文件夹: {self.source_folder}")
+            logger.error(f"错误：指定路径不是文件夹: {self.source_folder}")
             return False
         
         try:
             # 测试文件夹读取权限
             list(self.source_folder.iterdir())
         except PermissionError:
-            self.logger.error(f"错误：没有权限访问文件夹: {self.source_folder}")
+            logger.error(f"错误：没有权限访问文件夹: {self.source_folder}")
             return False
         except Exception as e:
-            self.logger.error(f"错误：无法访问文件夹 {self.source_folder}: {e}")
+            logger.error(f"错误：无法访问文件夹 {self.source_folder}: {e}")
             return False
         
         return True
@@ -174,15 +178,14 @@ class ImageRenamer:
             image_files.sort(key=self.natural_sort_key)
             
             # 调试输出排序结果
-            if self.logger.level <= logging.DEBUG:
-                self.logger.debug(f"排序后的文件列表:")
-                for i, file_path in enumerate(image_files):
-                    self.logger.debug(f"  {i+1}: {file_path.name}")
+            logger.debug(f"排序后的文件列表:")
+            for i, file_path in enumerate(image_files):
+                logger.debug(f"  {i+1}: {file_path.name}")
             
             return image_files
             
         except Exception as e:
-            self.logger.error(f"无法读取文件夹 {folder_path}: {e}")
+            logger.error(f"无法读取文件夹 {folder_path}: {e}")
             return []
     
     def rename_images_in_folder(self, folder_path: Path) -> Dict[str, int]:
@@ -205,22 +208,21 @@ class ImageRenamer:
         image_files = self.get_image_files_in_folder(folder_path)
         
         if not image_files:
-            self.logger.debug(f"文件夹中没有图片文件: {folder_path}")
+            logger.debug(f"文件夹中没有图片文件: {folder_path}")
             return folder_stats
         
         # 计算需要的位数
         padding = self.calculate_padding(len(image_files))
         
-        self.logger.info(f"\n处理文件夹: {folder_path}")
-        self.logger.info(f"找到 {len(image_files)} 个图片文件，使用 {padding} 位数字编号")
+        logger.info(f"\n处理文件夹: {folder_path}")
+        logger.info(f"找到 {len(image_files)} 个图片文件，使用 {padding} 位数字编号")
         
         # 显示原始文件排序
-        if self.logger.level <= logging.INFO:
-            self.logger.info("原始文件排序:")
-            for i, file_path in enumerate(image_files[:10]):  # 只显示前10个
-                self.logger.info(f"  {i+1}: {file_path.name}")
-            if len(image_files) > 10:
-                self.logger.info(f"  ... 还有 {len(image_files) - 10} 个文件")
+        logger.info("原始文件排序:")
+        for i, file_path in enumerate(image_files[:10]):  # 只显示前10个
+            logger.info(f"  {i+1}: {file_path.name}")
+        if len(image_files) > 10:
+            logger.info(f"  ... 还有 {len(image_files) - 10} 个文件")
         
         # 创建重命名映射
         rename_mapping = []
@@ -235,7 +237,7 @@ class ImageRenamer:
             expected_name = self.generate_new_name(current_number, padding, extension)
             
             if old_name == expected_name:
-                self.logger.debug(f"跳过文件（已是正确格式）: {old_name}")
+                logger.debug(f"跳过文件（已是正确格式）: {old_name}")
                 folder_stats['skipped'] += 1
             else:
                 new_name = expected_name
@@ -259,18 +261,18 @@ class ImageRenamer:
                         old_path.rename(temp_path)
                         temp_path.rename(new_path)
                     
-                    self.logger.info(f"重命名: {old_path.name} -> {new_name} (通过临时文件)")
+                    logger.info(f"重命名: {old_path.name} -> {new_name} (通过临时文件)")
                 else:
                     if not self.dry_run:
                         old_path.rename(new_path)
                     
                     action = "[试运行]" if self.dry_run else ""
-                    self.logger.info(f"{action} 重命名: {old_path.name} -> {new_name}")
+                    logger.info(f"{action} 重命名: {old_path.name} -> {new_name}")
                 
                 folder_stats['renamed'] += 1
                 
             except Exception as e:
-                self.logger.error(f"重命名失败 {old_path.name} -> {new_name}: {e}")
+                logger.error(f"重命名失败 {old_path.name} -> {new_name}: {e}")
                 folder_stats['errors'] += 1
         
         return folder_stats
@@ -299,12 +301,12 @@ class ImageRenamer:
                     if item.is_dir():
                         self.process_folder_recursive(item)
             except PermissionError:
-                self.logger.warning(f"没有权限访问子文件夹: {folder_path}")
+                logger.warning(f"没有权限访问子文件夹: {folder_path}")
             except Exception as e:
-                self.logger.error(f"处理子文件夹时出错 {folder_path}: {e}")
+                logger.error(f"处理子文件夹时出错 {folder_path}: {e}")
         
         except Exception as e:
-            self.logger.error(f"处理文件夹失败 {folder_path}: {e}")
+            logger.error(f"处理文件夹失败 {folder_path}: {e}")
     
     def count_total_images(self, folder_path: Path) -> int:
         """
@@ -330,20 +332,20 @@ class ImageRenamer:
     
     def print_summary(self):
         """打印重命名摘要"""
-        self.logger.info("\n" + "="*50)
-        self.logger.info("重命名摘要:")
-        self.logger.info(f"源文件夹: {self.source_folder}")
-        self.logger.info(f"处理文件夹数: {self.stats['total_folders']}")
-        self.logger.info(f"重命名图片数: {self.stats['renamed_images']}")
-        self.logger.info(f"跳过图片数: {self.stats['skipped_images']}")
-        self.logger.info(f"错误图片数: {self.stats['error_images']}")
-        self.logger.info(f"支持的图片格式: {', '.join(sorted(self.image_extensions))}")
+        logger.info("\n" + "="*50)
+        logger.info("重命名摘要:")
+        logger.info(f"源文件夹: {self.source_folder}")
+        logger.info(f"处理文件夹数: {self.stats['total_folders']}")
+        logger.info(f"重命名图片数: {self.stats['renamed_images']}")
+        logger.info(f"跳过图片数: {self.stats['skipped_images']}")
+        logger.info(f"错误图片数: {self.stats['error_images']}")
+        logger.info(f"支持的图片格式: {', '.join(sorted(self.image_extensions))}")
         
         if self.dry_run:
-            self.logger.info("\n*** 这是试运行结果，没有实际重命名文件 ***")
+            logger.info("\n*** 这是试运行结果，没有实际重命名文件 ***")
         
         if self.stats['error_images'] > 0:
-            self.logger.warning(f"\n注意: 有 {self.stats['error_images']} 个文件处理失败")
+            logger.warning(f"\n注意: 有 {self.stats['error_images']} 个文件处理失败")
     
     def rename_images(self):
         """执行图片重命名"""
@@ -351,15 +353,15 @@ class ImageRenamer:
             return False
         
         try:
-            self.logger.info(f"开始处理文件夹: {self.source_folder}")
-            self.logger.info(f"起始编号: {self.start_number}")
-            self.logger.info(f"排序方式: 自然数字排序")
+            logger.info(f"开始处理文件夹: {self.source_folder}")
+            logger.info(f"起始编号: {self.start_number}")
+            logger.info(f"排序方式: 自然数字排序")
             
             if self.dry_run:
-                self.logger.info("*** 试运行模式 - 不会实际重命名文件 ***")
+                logger.info("*** 试运行模式 - 不会实际重命名文件 ***")
                 # 预统计图片数量
                 total_images = self.count_total_images(self.source_folder)
-                self.logger.info(f"预计处理 {total_images} 个图片文件\n")
+                logger.info(f"预计处理 {total_images} 个图片文件\n")
             
             # 开始递归处理
             self.process_folder_recursive(self.source_folder)
@@ -368,10 +370,10 @@ class ImageRenamer:
             return True
             
         except KeyboardInterrupt:
-            self.logger.info("\n用户中断操作")
+            logger.info("\n用户中断操作")
             return False
         except Exception as e:
-            self.logger.error(f"重命名过程中发生错误: {e}")
+            logger.error(f"重命名过程中发生错误: {e}")
             return False
 
 def parse_args():
@@ -494,7 +496,8 @@ def main():
         
         # 设置日志级别
         if args.verbose:
-            logging.getLogger('ImageRenamer').setLevel(logging.DEBUG)
+            logger.remove()
+            logger.add(sys.stderr, level="DEBUG")
         
         # 获取文件夹路径
         if args.folder_path:
