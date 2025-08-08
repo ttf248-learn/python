@@ -4,7 +4,7 @@ import time
 import signal
 import sys
 import json
-import logging
+from loguru import logger
 from datetime import datetime, timedelta
 from typing import Tuple, Optional, Dict, Any, List
 from pathlib import Path
@@ -30,25 +30,25 @@ class FolderMonitor:
         self.setup_logging(log_file)
         self.setup_signal_handlers()
         
-    def setup_logging(self, log_file: Optional[str]):
-        """设置日志记录"""
-        self.logger = logging.getLogger('FolderMonitor')
-        self.logger.setLevel(logging.INFO)
+    def setup_logging(self, log_file: Optional[str] = None, log_dir: str = 'log'):
+        """设置日志配置"""
+        # 日志库默认输出到终端，移除终端的日志，目前保留终端的日志
+        # logger.remove()
         
-        # 控制台输出
-        console_handler = logging.StreamHandler()
-        console_formatter = logging.Formatter('%(message)s')
-        console_handler.setFormatter(console_formatter)
-        self.logger.addHandler(console_handler)
-        
-        # 文件输出
         if log_file:
-            file_handler = logging.FileHandler(log_file, encoding='utf-8')
-            file_formatter = logging.Formatter(
-                '%(asctime)s - %(levelname)s - %(message)s'
-            )
-            file_handler.setFormatter(file_formatter)
-            self.logger.addHandler(file_handler)
+            # 如果指定了log_file，使用指定的文件
+            log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
+            logger.add(log_file, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
+        else:
+            # 使用默认的日志目录和文件名格式
+            if not os.path.exists(log_dir):
+                os.makedirs(log_dir)
+            
+            log_file_path = os.path.join(log_dir, 'folder_monitor_{time:YYYY-MM-DD}.log')
+            
+            # 添加日志记录器，按天滚动，并保留30天的日志
+            log_format = "{time:YYYY-MM-DD HH:mm:ss} - {level} - {name}:{function}:{line} - {message}"
+            logger.add(log_file_path, rotation="00:00", retention="30 days", level="DEBUG", format=log_format)
     
     def setup_signal_handlers(self):
         """设置信号处理器"""
@@ -58,7 +58,7 @@ class FolderMonitor:
     
     def signal_handler(self, sig, frame):
         """处理退出信号"""
-        self.logger.info(f"\n[{self.format_timestamp()}] 监控已停止")
+        logger.info(f"\n[{self.format_timestamp()}] 监控已停止")
         self.print_summary()
         sys.exit(0)
     
@@ -114,7 +114,7 @@ class FolderMonitor:
                                         'size': file_size
                                     }
                         except (OSError, IOError) as e:
-                            self.logger.warning(f"无法访问文件 {filepath}: {e}")
+                            logger.warning(f"无法访问文件 {filepath}: {e}")
                             continue
                 
                 return {
@@ -126,10 +126,10 @@ class FolderMonitor:
                 
             except (OSError, IOError) as e:
                 if attempt < max_retries - 1:
-                    self.logger.warning(f"获取文件夹信息失败，重试 {attempt + 1}/{max_retries}: {e}")
+                    logger.warning(f"获取文件夹信息失败，重试 {attempt + 1}/{max_retries}: {e}")
                     time.sleep(1)
                 else:
-                    self.logger.error(f"无法访问文件夹 {folder_path}: {e}")
+                    logger.error(f"无法访问文件夹 {folder_path}: {e}")
                     return None
         
         return None
@@ -137,8 +137,8 @@ class FolderMonitor:
     def print_summary(self):
         """打印监控摘要"""
         duration = datetime.now() - self.start_time
-        self.logger.info(f"监控时长: {duration}")
-        self.logger.info(f"监控文件夹: {self.folder_path}")
+        logger.info(f"监控时长: {duration}")
+        logger.info(f"监控文件夹: {self.folder_path}")
     
     def add_size_record(self, size: int):
         """添加体积记录到历史数据"""
@@ -362,10 +362,10 @@ class FolderMonitor:
     
     def monitor(self):
         """开始监控"""
-        self.logger.info(f"开始监控文件夹: {self.folder_path}")
-        self.logger.info(f"监控间隔: {self.interval_minutes} 分钟")
-        self.logger.info(f"输出格式: {'JSON' if self.json_output else '文本'}")
-        self.logger.info("按 Ctrl+C 停止监控\n")
+        logger.info(f"开始监控文件夹: {self.folder_path}")
+        logger.info(f"监控间隔: {self.interval_minutes} 分钟")
+        logger.info(f"输出格式: {'JSON' if self.json_output else '文本'}")
+        logger.info("按 Ctrl+C 停止监控\n")
         
         while True:
             try:
@@ -388,16 +388,16 @@ class FolderMonitor:
                     
                     output = self.format_output(timestamp, stats, size_change, 
                                               growth_stats, historical_growth)
-                    self.logger.info(output)
+                    logger.info(output)
                     
                     self.previous_size = current_size
                 else:
-                    self.logger.error(f"[{timestamp}] 错误：无法获取文件夹统计信息")
+                    logger.error(f"[{timestamp}] 错误：无法获取文件夹统计信息")
                 
                 time.sleep(self.interval_seconds)
                 
             except Exception as e:
-                self.logger.error(f"[{self.format_timestamp()}] 监控过程中发生错误: {e}")
+                logger.error(f"[{self.format_timestamp()}] 监控过程中发生错误: {e}")
                 time.sleep(self.interval_seconds)
 
 def parse_args():
