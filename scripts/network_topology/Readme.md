@@ -1,337 +1,96 @@
-# 进程网络拓扑图生成器
+# 🌐 Process Network Topology Visualizer (进程网络拓扑可视化工具)
 
-## 简介
+这是一个用于分析和可视化 Linux 系统上指定进程之间网络连接关系的 Python 脚本。它利用 `psutil` 收集网络连接数据，并使用 `graphviz` 库生成清晰、防重叠的拓扑图。
 
-`process_network_topology.py` 是一个用于分析和可视化进程网络拓扑图的Python脚本。它能够接收多个进程ID（PIDs），分析这些进程间的网络通信关系，并生成直观的拓扑图。
+## ✨ 特点
 
-## 功能特性
+  * **多进程分析：** 一次性分析多个指定的 PID 之间的网络连接。
+  * **智能监听匹配：** 自动处理 `0.0.0.0` 和 `::` 等通配符地址的端口匹配。
+  * **优化布局：** 采用 `sfdp` 布局引擎和优化的 Graphviz 属性，最大限度减少连线和节点重叠。
+  * **清晰展示：** 在图的边上直接标注客户端端口和服务器端口，方便追溯连接路径。
+  * **多格式输出：** 支持生成 PNG 图片和交互式 SVG 嵌入的 HTML 文件。
 
-- ✅ **多进程分析**: 支持同时分析多个PID进程
-- ✅ **网络拓扑可视化**: 生成进程间网络连接拓扑图
-- ✅ **多种输出格式**:
-  - PNG格式：静态拓扑图，适合报告和文档
-  - HTML格式：交互式拓扑图，支持缩放和查看详情
-  - TXT格式：详细的文本分析报告
-- ✅ **节点信息**: 节点显示格式为 `PID (进程名)`
-- ✅ **端口通信标注**: 清楚显示网络端口和连接方向
-- ✅ **进程关系**: 包含父子进程关系
-- ✅ **外部连接**: 显示进程与外部服务的连接
+## ⚙️ 环境要求
 
-## 系统要求
+  * Python 3.x
+  * `psutil` 库
+  * `graphviz` Python 库
+  * **Graphviz C 库** (系统依赖)
 
-- **操作系统**: Linux
-- **Python版本**: 3.8+
-- **权限**: 需要读取进程信息的权限（通常需要root或目标进程的所有者权限）
+## 📥 安装
 
-## 安装依赖
-
-在脚本目录中执行以下命令安装依赖：
+### 1\. 安装 Python 依赖
 
 ```bash
-pip install -r requirements.txt
+pip install psutil graphviz
 ```
 
-### 依赖说明
+### 2\. 安装系统 Graphviz 库
 
-- `psutil`: 获取进程信息、网络连接、进程树等系统信息
-- `networkx`: 构建和分析网络拓扑图
-- `matplotlib`: 生成静态PNG图像
-- `plotly`: 生成交互式HTML图像
-- `numpy`: 数值计算支持
+`graphviz` Python 库需要底层的 Graphviz C 库来渲染图形。请根据您的操作系统执行相应命令：
 
-## 使用方法
+| 系统 | 命令 |
+| :--- | :--- |
+| **Debian/Ubuntu** | `sudo apt-get install graphviz` |
+| **RHEL/CentOS/Fedora** | `sudo dnf install graphviz` (或 `yum`) |
+| **macOS (使用 Homebrew)** | `brew install graphviz` |
 
-### 基本语法
+## 🚀 使用方法
+
+### 1\. 保存脚本
+
+将优化后的代码保存为 `net_topo.py`。
+
+### 2\. 运行脚本（推荐使用 `sudo`）
+
+由于获取完整的系统网络连接信息（特别是跨用户进程的连接）需要较高的权限，**强烈建议使用 `sudo` 运行**。
 
 ```bash
-python process_network_topology.py -p PID1 PID2 [PID3 ...] [选项]
+# 语法: python3 net_topo.py --pids <PID1> <PID2> ... --output-name <文件前缀>
+sudo python3 net_topo.py --pids 1234 5678 9101 --output-name service_map
 ```
 
-### 参数说明
+#### 📌 参数说明
 
-| 参数 | 简写 | 类型 | 说明 |
-|------|------|------|------|
-| `--pids` | `-p` | int[] | **必需** - 要分析的进程ID列表 |
-| `--output` | `-o` | string | 输出目录 (默认: output) |
-| `--html-only` | - | flag | 只生成HTML格式的交互式拓扑图 |
-| `--png-only` | - | flag | 只生成PNG格式的静态拓扑图 |
-| `--report-only` | - | flag | 只生成文本分析报告 |
-| `--verbose` | `-v` | flag | 显示详细信息 |
-| `--help` | `-h` | flag | 显示帮助信息 |
+| 参数 | 类型 | 必需 | 描述 | 示例 |
+| :--- | :--- | :--- | :--- | :--- |
+| `--pids` | 整数列表 | 是 | 一个或多个要分析的进程 ID (PID)。 | `1234 5678` |
+| `--output-name` | 字符串 | 是 | 输出文件的前缀名（不含扩展名）。 | `app_topo` |
+| `--formats` | 字符串列表 | 否 | 输出格式，可选 `png`, `html`。默认两者都输出。 | `png` |
 
-### 使用示例
+### 3\. 查看结果
 
-#### 1. 基本用法
+运行成功后，将在当前目录下生成以下文件：
 
-分析PID为1234和5678的进程：
+  * `service_map.png`：生成的图片拓扑图。
+  * `service_map.html`：包含可缩放 SVG 图的网页文件，建议用浏览器打开查看。
 
-```bash
-python process_network_topology.py -p 1234 5678
-```
+## 🖼️ 输出结果说明
 
-#### 2. 指定输出目录
+  * **节点 (Boxes):**
 
-```bash
-python process_network_topology.py -p 1234 5678 -o /tmp/topology
-```
+      * 显示 `PID` 和 `Process Name`。
+      * 显示进程正在 `Listen` (监听) 的端口列表。
+      * 显示进程正在使用的 `Conn` (连接/外发) 的端口列表。
 
-#### 3. 只生成HTML格式
+  * **边 (Arrows):**
 
-```bash
-python process_network_topology.py -p 1234 5678 --html-only
-```
+      * 箭头从 **客户端 (Client / 发起连接方)** 指向 **服务器 (Server / 监听方)**。
+      * **连线标签：** 清晰地标注了连接中使用的端口信息：
+          * `Client Port`: 客户端使用的本地 (通常是临时) 端口。
+          * `Server Port`: 服务器监听的目标端口。
 
-#### 4. 只生成PNG格式
+-----
 
-```bash
-python process_network_topology.py -p 1234 5678 --png-only
-```
+## 🛠️ 故障排除
 
-#### 5. 分析多个进程
+  * **错误: `failed to execute 'dot'`**
 
-```bash
-python process_network_topology.py -p 1234 5678 9012 1314 -v
-```
+      * **原因：** 缺少 Graphviz C 库。
+      * **解决：** 请参考 [安装](https://www.google.com/search?q=%232-%E5%AE%89%E8%A3%85%E7%B3%BB%E7%BB%9F-graphviz-%E5%BA%93) 部分安装系统依赖。
 
-#### 6. 只生成分析报告
+  * **警告: `未找到已建立的 (ESTABLISHED) 连接`**
 
-```bash
-python process_network_topology.py -p 1234 5678 --report-only
-```
-
-### 获取进程ID的方法
-
-#### 使用`ps`命令
-
-```bash
-# 查看所有进程
-ps aux | grep <进程名>
-
-# 查看特定用户的进程
-ps -u <用户名>
-
-# 查看进程树
-ps auxf
-```
-
-#### 使用`pgrep`命令
-
-```bash
-# 根据进程名查找PID
-pgrep -f <进程名>
-
-# 查看进程的详细信息
-pidof <进程名>
-```
-
-## 输出文件
-
-脚本会在指定的输出目录中生成以下文件：
-
-1. **process_topology.png** - 静态拓扑图
-   - 高分辨率PNG图像
-   - 包含节点、边、标签和图例
-   - 适合插入报告和文档
-
-2. **process_topology.html** - 交互式拓扑图
-   - 可在浏览器中打开
-   - 支持缩放、拖拽
-   - 鼠标悬停显示详细信息
-
-3. **topology_report.txt** - 详细分析报告
-   - 进程信息
-   - 网络连接详情
-   - 拓扑关系列表
-
-## 输出格式说明
-
-### 节点
-
-- **蓝色圆圈**: 监控的进程节点
-  - 标签格式: `PID (进程名)`
-  - 例如: `1234 (nginx)`
-
-- **灰色方块**: 外部连接节点
-  - 标签格式: `外部连接 IP:端口`
-  - 例如: `外部连接 192.168.1.100:80`
-
-### 边
-
-- **箭头**: 网络连接方向
-  - 指向箭头表示数据流向
-  - 边标签显示端口信息: `端口: 12345 -> 80`
-
-### 颜色含义
-
-- **蓝色节点**: 监控的进程
-- **灰色节点**: 外部连接
-- **灰色边**: 网络连接
-- **箭头**: 连接方向
-
-## 示例输出
-
-### 文本报告示例
-
-```
-============================================================
-进程网络拓扑分析报告
-============================================================
-
-分析时间: 1699531200.0
-监控进程数量: 2
-
-============================================================
-进程信息
-============================================================
-
-PID: 1234
-  名称: nginx
-  命令: /usr/sbin/nginx -g 'daemon off;'
-  状态: running
-
-PID: 5678
-  名称: python
-  命令: /usr/bin/python3 app.py
-  状态: running
-
-============================================================
-网络连接信息
-============================================================
-
-PID 1234: 0.0.0.0:80 <-> 192.168.1.100:54321
-  状态: ESTABLISHED
-
-============================================================
-网络拓扑关系
-============================================================
-
-1234 --[端口: 80 -> 54321]--> external_1234_80
-```
-
-## 注意事项
-
-1. **权限要求**
-   - 脚本需要读取目标进程信息的权限
-   - 对于其他用户的进程，可能需要root权限
-
-2. **进程状态**
-   - 如果进程在分析期间结束，相关信息可能不完整
-   -僵尸进程可能无法获取完整的网络信息
-
-3. **网络连接**
-   - 只显示TCP和UDP连接
-   - 某些系统调用可能需要特殊权限
-
-4. **性能考虑**
-   - 分析大量进程可能需要较长时间
-   - 生成的图像可能较大（特别是有很多连接时）
-
-5. **数据准确性**
-   - 网络连接信息是实时的，可能快速变化
-   - 建议在进程相对稳定时进行分析
-
-## 故障排除
-
-### 常见问题
-
-#### 1. "PID不存在" 警告
-
-**原因**: 指定的PID不存在或进程已结束
-
-**解决方案**:
-```bash
-# 检查进程是否存在
-ps -p <PID>
-# 或使用
-ps aux | grep <PID>
-```
-
-#### 2. "无法访问PID" 权限错误
-
-**原因**: 权限不足，无法读取进程信息
-
-**解决方案**:
-```bash
-# 使用sudo运行
-sudo python process_network_topology.py -p <PID1> <PID2>
-
-# 或切换到进程所有者
-su - <进程所有者>
-python process_network_topology.py -p <PID1> <PID2>
-```
-
-#### 3. 图像显示异常
-
-**原因**: 图形界面或字体问题
-
-**解决方案**:
-```bash
-# 在无头服务器上，使用Agg后端
-export MPLBACKEND=Agg
-python process_network_topology.py -p <PID1> <PID2>
-```
-
-#### 4. 依赖安装失败
-
-**原因**: pip源问题或Python版本不兼容
-
-**解决方案**:
-```bash
-# 更新pip
-python -m pip install --upgrade pip
-
-# 使用国内镜像源
-pip install -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
-
-# 检查Python版本
-python --version
-```
-
-## 扩展功能
-
-### 自定义颜色方案
-
-可以修改脚本中的以下部分来自定义节点颜色：
-
-```python
-# 在visualize_matplotlib方法中
-nx.draw_networkx_nodes(
-    self.graph, pos,
-    nodelist=process_nodes,
-    node_color='lightblue',  # 修改此颜色
-    node_size=2000,
-    alpha=0.8
-)
-```
-
-### 添加更多节点属性
-
-可以在`get_process_info`方法中添加更多信息：
-
-```python
-proc_info = {
-    'pid': pid,
-    'name': proc.name(),
-    'cmdline': ' '.join(proc.cmdline()),
-    'status': proc.status(),
-    'create_time': proc.create_time(),
-    'cpu_percent': proc.cpu_percent(),  # 添加CPU使用率
-    'memory_info': proc.memory_info(),   # 添加内存信息
-}
-```
-
-## 贡献
-
-欢迎提交问题报告和改进建议！
-
-## 许可证
-
-MIT License
-
-## 更新日志
-
-### v1.0.0 (2025-11-10)
-- 初始版本发布
-- 支持多进程网络拓扑分析
-- 支持PNG和HTML输出格式
-- 支持文本分析报告
+      * **原因 1：** 脚本没有足够的权限读取所有网络连接。
+      * **解决 1：** 尝试使用 `sudo python3 net_topo.py ...` 运行。
+      * **原因 2：** 指定的 PID 之间当时确实没有活跃的 `ESTABLISHED` 状态的连接。
