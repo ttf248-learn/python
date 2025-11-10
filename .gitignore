@@ -5,3 +5,7 @@ scripts/config/.key
 scripts/config/mail_config.enc
 
 *.log
+
+# Output directories
+output/
+scripts/network_topology/output/
