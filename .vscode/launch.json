@@ -8,11 +8,104 @@
             "console": "integratedTerminal"
         },
         {
+            "name": "Network Topology: 分析PID 1",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/network_topology/process_network_topology.py",
+            "args": [
+                "-p",
+                "1",
+                "--report-only",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/scripts/network_topology",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Network Topology: 分析指定PID",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/network_topology/process_network_topology.py",
+            "args": [
+                "-p",
+                "${input:pid}",
+                "-o",
+                "${workspaceFolder}/scripts/network_topology/output",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/scripts/network_topology",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Network Topology: 生成HTML",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/network_topology/process_network_topology.py",
+            "args": [
+                "-p",
+                "${input:pid}",
+                "--html-only",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/scripts/network_topology",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Network Topology: 生成PNG",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/network_topology/process_network_topology.py",
+            "args": [
+                "-p",
+                "${input:pid}",
+                "--png-only",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/scripts/network_topology",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
+            "name": "Network Topology: 完整分析",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/scripts/network_topology/process_network_topology.py",
+            "args": [
+                "-p",
+                "${input:pid}",
+                "-v"
+            ],
+            "console": "integratedTerminal",
+            "cwd": "${workspaceFolder}/scripts/network_topology",
+            "env": {
+                "PYTHONPATH": "${workspaceFolder}"
+            }
+        },
+        {
             "name": "SendMail",
             "type": "debugpy",
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
+        }
+    ],
+    "inputs": [
+        {
+            "id": "pid",
+            "description": "输入要分析的进程ID (PID)",
+            "default": "1",
+            "type": "promptString"
         }
     ]
 }

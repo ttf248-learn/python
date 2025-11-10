@@ -1,5 +1,36 @@
 {
     "github.copilot.chat.localeOverride": "zh-CN",
     "github.copilot.chat.codeGeneration.useInstructionFiles": true,
-    "chat.promptFiles": true
+    "chat.promptFiles": true,
+
+    "python.defaultInterpreterPath": "python3",
+    "python.terminal.activateEnvironment": true,
+    "python.linting.enabled": true,
+    "python.linting.pylintEnabled": true,
+    "python.formatting.provider": "black",
+    "python.formatting.blackArgs": ["--line-length=88"],
+
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.autoSearchPaths": true,
+    "python.analysis.extraPaths": [
+        "${workspaceFolder}/scripts"
+    ],
+
+    "files.associations": {
+        "*.py": "python"
+    },
+
+    "python.testing.pytestEnabled": false,
+    "python.testing.unittestEnabled": false,
+    "python.testing.nosetestsEnabled": false,
+
+    "editor.rulers": [88],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.detectIndentation": false,
+
+    "workbench.editorAssociations": {
+        "*.ipynb": "jupyter-notebook"
+    }
 }
