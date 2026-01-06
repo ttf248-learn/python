@@ -8,6 +8,14 @@ from datetime import datetime
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
+from rich.console import Console
+from rich.progress import Progress
+
+# Import custom display functions
+from display import print_summary, print_data_view
+
+# Initialize Rich Console
+console = Console()
 
 # Define the data directory relative to the script's location
 DATA_DIR = Path(__file__).parent / "data"
@@ -72,68 +80,65 @@ def scrape_page(session, url, retries=3):
             response.encoding = 'utf-8'
             return BeautifulSoup(response.text, 'lxml')
         except requests.exceptions.RequestException as e:
-            print(f"Error fetching {url} (attempt {i+1}/{retries}): {e}")
+            console.print(f"[bold red]Error fetching {url} (attempt {i+1}/{retries}): {e}[/bold red]")
     return None
 
 
 def scrape_all_pages(stock_code, latest_date=None):
-    """Scrapes all buyback data pages for a given stock code."""
+    """Scrapes all buyback data pages for a given stock code with progress bar."""
     base_url = "https://hk.eastmoney.com"
     all_data = []
-    
+
     with requests.Session() as session:
-        # Scrape page 1
         page_url = f"{base_url}/buyback.html?code={stock_code}"
-        print(f"Scraping page: {page_url}")
         soup = scrape_page(session, page_url)
         if not soup:
-            print("Failed to fetch initial page. Aborting.")
+            console.print("[bold red]Failed to fetch initial page. Aborting.[/bold red]")
             return pd.DataFrame()
 
         total_pages = get_total_pages(soup)
-        print(f"Found {total_pages} pages for stock code {stock_code}.")
+        console.print(f"[green]✓[/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
 
-        # Process pages
-        for page_num in range(1, total_pages + 1):
-            if page_num > 1:
-                page_url = f"{base_url}/buyback_{page_num}.html?code={stock_code}"
-                print(f"Scraping page: {page_url}")
-                soup = scrape_page(session, page_url)
-                if not soup:
-                    continue # Skip to next page if fetching fails
+        with Progress(console=console) as progress:
+            task = progress.add_task(f"[cyan]Scraping {stock_code}...", total=total_pages)
 
-            table = soup.find('table', class_='table_striped')
-            if not table:
-                print(f"No data table found on page {page_num}.")
-                continue
-            
-            rows = table.find('tbody').find_all('tr')
-            page_has_new_data = False
-            for row in rows:
-                cols = [ele.text.strip() for ele in row.find_all('td')]
-                if len(cols) == 9:
-                    date_str = cols[8]
-                    # Stop if we encounter a date we already have
-                    if latest_date and datetime.strptime(date_str, '%Y-%m-%d').date() <= latest_date:
-                        print(f"Reached existing data (date: {date_str}). Stopping incremental scrape.")
-                        return pd.DataFrame(all_data)
+            for page_num in range(1, total_pages + 1):
+                progress.update(task, advance=1, description=f"[cyan]Scraping page {page_num}/{total_pages}")
+                if page_num > 1:
+                    page_url = f"{base_url}/buyback_{page_num}.html?code={stock_code}"
+                    soup = scrape_page(session, page_url)
+                    if not soup:
+                        continue
 
-                    page_has_new_data = True
-                    data = {
-                        '股票代码': cols[1],
-                        '股票名称': cols[2],
-                        '回购数量(股)': parse_value(cols[3]),
-                        '最高回购价': parse_value(cols[4]),
-                        '最低回购价': parse_value(cols[5]),
-                        '回购平均价': parse_value(cols[6]),
-                        '回购总额(港元)': parse_value(cols[7]),
-                        '日期': date_str,
-                    }
-                    all_data.append(data)
-            
-            # If the whole page had no new data, we can stop
-            if not page_has_new_data and latest_date:
-                return pd.DataFrame(all_data)
+                table = soup.find('table', class_='table_striped')
+                if not table:
+                    continue
+                
+                rows = table.find('tbody').find_all('tr')
+                page_has_new_data = False
+                for row in rows:
+                    cols = [ele.text.strip() for ele in row.find_all('td')]
+                    if len(cols) == 9:
+                        date_str = cols[8]
+                        if latest_date and datetime.strptime(date_str, '%Y-%m-%d').date() <= latest_date:
+                            console.print(f"\n[yellow]![/yellow] Reached existing data (date: {date_str}). Stopping incremental scrape.")
+                            return pd.DataFrame(all_data)
+
+                        page_has_new_data = True
+                        data = {
+                            '股票代码': cols[1],
+                            '股票名称': cols[2],
+                            '回购数量(股)': parse_value(cols[3]),
+                            '最高回购价': parse_value(cols[4]),
+                            '最低回购价': parse_value(cols[5]),
+                            '回购平均价': parse_value(cols[6]),
+                            '回购总额(港元)': parse_value(cols[7]),
+                            '日期': date_str,
+                        }
+                        all_data.append(data)
+                
+                if not page_has_new_data and latest_date:
+                    return pd.DataFrame(all_data)
 
     return pd.DataFrame(all_data)
 
@@ -143,7 +148,7 @@ def load_stock_data(stock_code):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     if file_path.exists():
-        print(f"Loading existing data from {file_path}")
+        console.print(f"[green]✓[/green] Loading existing data from [bold]{file_path}[/bold]")
         return pd.read_csv(file_path)
     return pd.DataFrame()
 
@@ -152,7 +157,7 @@ def save_stock_data(df, stock_code):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     df.to_csv(file_path, index=False)
-    print(f"Data saved to {file_path}")
+    console.print(f"[green]✓[/green] Data saved to [bold]{file_path}[/bold]")
 
 def update_stock_data(stock_code):
     """
@@ -161,23 +166,20 @@ def update_stock_data(stock_code):
     existing_df = load_stock_data(stock_code)
     latest_date = None
     if not existing_df.empty and '日期' in existing_df.columns:
-        # Convert to datetime objects and get the max date
         latest_date = pd.to_datetime(existing_df['日期']).max().date()
 
-    print(f"Checking for new data for {stock_code}...")
+    console.print(f"Checking for new data for [bold]{stock_code}[/bold]...")
     new_df = scrape_all_pages(stock_code, latest_date)
 
     if new_df.empty:
-        print("No new data found. Using existing data.")
+        console.print("[yellow]No new data found. Using existing data.[/yellow]")
         return existing_df
 
-    print("New data found, updating local store...")
+    console.print("[green]✓[/green] New data found, updating local store...")
     combined_df = pd.concat([new_df, existing_df], ignore_index=True)
     
-    # Remove duplicates based on date, keeping the first occurrence (from new data)
     combined_df.drop_duplicates(subset=['日期'], keep='first', inplace=True)
     
-    # Sort by date
     combined_df['日期'] = pd.to_datetime(combined_df['日期'])
     combined_df.sort_values(by='日期', ascending=False, inplace=True)
     
@@ -189,7 +191,7 @@ def show_summary(stock_code, period):
     df = update_stock_data(stock_code)
     
     if df.empty or '回购总额(港元)' not in df.columns or '回购数量(股)' not in df.columns:
-        print(f"No data found or data is incomplete for stock {stock_code} even after attempting to fetch.")
+        console.print(f"[bold red]No data found or data is incomplete for stock {stock_code}.[/bold red]")
         return
 
     df['日期'] = pd.to_datetime(df['日期'])
@@ -202,57 +204,38 @@ def show_summary(stock_code, period):
         group_by_col = df['日期'].dt.to_period('M')
         group_by_col.name = 'YearMonth'
     else:
-        print("Invalid summary period. Use 'year' or 'month'.")
+        console.print("[bold red]Invalid summary period. Use 'year' or 'month'.[/bold red]")
         return
 
     summary_df = df.groupby(group_by_col).agg(
         TotalAmount=('回购总额(港元)', 'sum'),
         TotalQuantity=('回购数量(股)', 'sum')
     )
-    summary_df['WeightedAvgPrice'] = summary_df['TotalAmount'] / summary_df['TotalQuantity']
+    # Use a small epsilon to avoid division by zero
+    summary_df['WeightedAvgPrice'] = summary_df['TotalAmount'] / (summary_df['TotalQuantity'] + 1e-9)
+
 
     # --- Total Calculation ---
     total_amount = df['回购总额(港元)'].sum()
     total_quantity = df['回购数量(股)'].sum()
     total_avg_price = total_amount / total_quantity if total_quantity else 0
 
-    # --- Formatting and Printing ---
-    
-    # Create a display DataFrame to avoid SettingWithCopyWarning
-    display_df = pd.DataFrame()
-    display_df['回购总额'] = summary_df['TotalAmount'].apply(lambda x: f"{x:,.2f} 港元")
-    display_df['回购数量'] = summary_df['TotalQuantity'].apply(lambda x: f"{x:,.0f} 股")
-    display_df['均价'] = summary_df['WeightedAvgPrice'].apply(lambda x: f"{x:.3f}")
+    # --- Use Rich for printing ---
+    print_summary(df, stock_code, period, summary_df, total_amount, total_quantity, total_avg_price)
 
-
-    print(f"\n--- 回购总额汇总 ({'按' + ('年' if period == 'year' else '月')}) for {stock_code} ---")
-    print(display_df)
-
-    # Add total summary
-    print("-" * 40)
-    print("所有年份累加总计:")
-    print(f"  回购总额: {total_amount:,.2f} 港元")
-    print(f"  回购数量: {total_quantity:,.0f} 股")
-    print(f"  加权均价: {total_avg_price:.3f}")
-    print("---------------------------------------------------\n")
 
 def view_data(stock_code, limit):
     """View the stored data after ensuring it is up-to-date."""
     df = update_stock_data(stock_code)
-
-    if df.empty:
-        print(f"No data found for stock {stock_code} even after attempting to fetch.")
-        return
-
-    print(f"\n--- Stored Data for {stock_code} (first {limit} rows) ---")
-    with pd.option_context('display.max_rows', None, 'display.max_columns', None, 'display.width', 1000):
-        print(df.head(limit))
-    print("---------------------------------------------------\n")
+    print_data_view(df, stock_code, limit)
 
 
 def main():
     """Main function to handle command-line arguments."""
-    parser = argparse.ArgumentParser(description="Eastmoney Buyback Data Scraper and Analyzer.")
+    parser = argparse.ArgumentParser(
+        description="Eastmoney Buyback Data Scraper and Analyzer.",
+        epilog="Example: python eastmoney_buyback.py summary 00700 year"
+    )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
     # Fetch command
