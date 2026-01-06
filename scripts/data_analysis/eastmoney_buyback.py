@@ -209,10 +209,16 @@ def show_summary(stock_code, period):
 
     summary_df = df.groupby(group_by_col).agg(
         TotalAmount=('回购总额(港元)', 'sum'),
-        TotalQuantity=('回购数量(股)', 'sum')
+        TotalQuantity=('回购数量(股)', 'sum'),
+        BuybackDays=('日期', 'count'),  # Number of buyback days in the period
+        AvgDailyAmount=('回购总额(港元)', 'mean') # Average daily buyback amount
     )
     # Use a small epsilon to avoid division by zero
     summary_df['WeightedAvgPrice'] = summary_df['TotalAmount'] / (summary_df['TotalQuantity'] + 1e-9)
+    
+    # Calculate Period-over-Period Change
+    summary_df['PoP_Change'] = summary_df['TotalAmount'].pct_change(periods=-1) * 100 # Change from previous period
+
 
 
     # --- Total Calculation ---

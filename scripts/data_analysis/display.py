@@ -8,20 +8,30 @@ from rich.table import Table
 from rich.panel import Panel
 from rich.text import Text
 from rich.box import ROUNDED
+import pandas as pd
 
 console = Console()
 
 def format_currency(value):
     """Formats a number as a currency string with commas."""
-    if value is None:
+    if value is None or pd.isna(value):
         return "N/A"
     return f"{value:,.2f}"
 
 def format_quantity(value):
     """Formats a number as a quantity string with commas."""
-    if value is None:
+    if value is None or pd.isna(value):
         return "N/A"
     return f"{value:,.0f}"
+
+def format_change(value):
+    """Formats a percentage change with color."""
+    if value is None or pd.isna(value):
+        return "[dim]N/A[/dim]"
+    
+    color = "green" if value > 0 else "red"
+    return f"[{color}]{value:+.2f}%[/{color}]"
+
 
 def print_summary(df, stock_code, period, summary_df, total_amount, total_quantity, total_avg_price):
     """
@@ -36,14 +46,19 @@ def print_summary(df, stock_code, period, summary_df, total_amount, total_quanti
 
     table.add_column("周期", justify="center", style="cyan", no_wrap=True)
     table.add_column("回购总额 (港元)", justify="right", style="green")
-    table.add_column("回购数量 (股)", justify="right", style="yellow")
+    table.add_column("同比/环比变化", justify="right")
+    table.add_column("回购天数", justify="center", style="blue")
+    table.add_column("日均回购额", justify="right", style="magenta")
     table.add_column("加权均价", justify="right", style="red")
 
-    for index, row in summary_df.iterrows():
+    # The dataframe is sorted descending, so we iterate in reverse to show oldest first
+    for index, row in summary_df.iloc[::-1].iterrows():
         table.add_row(
             str(index),
             format_currency(row['TotalAmount']),
-            format_quantity(row['TotalQuantity']),
+            format_change(row['PoP_Change']),
+            str(row['BuybackDays']),
+            format_currency(row['AvgDailyAmount']),
             f"{row['WeightedAvgPrice']:.3f}"
         )
 
@@ -60,7 +75,7 @@ def print_summary(df, stock_code, period, summary_df, total_amount, total_quanti
         (f"{format_quantity(total_quantity)} 股\n", "bold yellow"),
         ("总加权均价: ", "default"),
         (f"{total_avg_price:.3f}\n", "bold red"),
-        ("总回购次数: ", "default"),
+        ("总回购天数: ", "default"),
         (f"{total_buyback_days} 天\n", "bold blue"),
         ("日均回购额: ", "default"),
         (f"{format_currency(avg_daily_amount)} 港元", "bold magenta"),
