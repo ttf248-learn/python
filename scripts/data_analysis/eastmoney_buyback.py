@@ -1,6 +1,5 @@
 
 import argparse
-import os
 import re
 from pathlib import Path
 from datetime import datetime
@@ -19,6 +18,15 @@ console = Console()
 
 # Define the data directory relative to the script's location
 DATA_DIR = Path(__file__).parent / "data"
+
+def parse_cli_date(date_str):
+    """Parses a CLI date argument in YYYY-MM-DD format."""
+    try:
+        return datetime.strptime(date_str, '%Y-%m-%d').date()
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(
+            f"Invalid date '{date_str}'. Expected format: YYYY-MM-DD."
+        ) from exc
 
 def parse_value(value_str):
     """Converts string values like '105.40万' to a float."""
@@ -97,7 +105,7 @@ def scrape_all_pages(stock_code, latest_date=None):
             return pd.DataFrame()
 
         total_pages = get_total_pages(soup)
-        console.print(f"[green]✓[/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
+        console.print(f"[green][OK][/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
 
         with Progress(console=console) as progress:
             task = progress.add_task(f"[cyan]Scraping {stock_code}...", total=total_pages)
@@ -148,7 +156,7 @@ def load_stock_data(stock_code):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     if file_path.exists():
-        console.print(f"[green]✓[/green] Loading existing data from [bold]{file_path}[/bold]")
+        console.print(f"[green][OK][/green] Loading existing data from [bold]{file_path}[/bold]")
         return pd.read_csv(file_path)
     return pd.DataFrame()
 
@@ -157,7 +165,7 @@ def save_stock_data(df, stock_code):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     df.to_csv(file_path, index=False)
-    console.print(f"[green]✓[/green] Data saved to [bold]{file_path}[/bold]")
+    console.print(f"[green][OK][/green] Data saved to [bold]{file_path}[/bold]")
 
 def update_stock_data(stock_code):
     """
@@ -175,7 +183,7 @@ def update_stock_data(stock_code):
         console.print("[yellow]No new data found. Using existing data.[/yellow]")
         return existing_df
 
-    console.print("[green]✓[/green] New data found, updating local store...")
+    console.print("[green][OK][/green] New data found, updating local store...")
     combined_df = pd.concat([new_df, existing_df], ignore_index=True)
     
     combined_df.drop_duplicates(subset=['日期'], keep='first', inplace=True)
@@ -186,8 +194,8 @@ def update_stock_data(stock_code):
     save_stock_data(combined_df, stock_code)
     return combined_df
 
-def show_summary(stock_code, period):
-    """Shows a summary of buyback amounts by year or month after ensuring data is up-to-date."""
+def show_summary(stock_code, period, target_date=None):
+    """Shows a summary of buyback amounts for a period or a specific date."""
     df = update_stock_data(stock_code)
     
     if df.empty or '回购总额(港元)' not in df.columns or '回购数量(股)' not in df.columns:
@@ -195,6 +203,18 @@ def show_summary(stock_code, period):
         return
 
     df['日期'] = pd.to_datetime(df['日期'])
+
+    if period == 'date':
+        if target_date is None:
+            console.print("[bold red]A target date is required when period is 'date'.[/bold red]")
+            return
+
+        df = df[df['日期'].dt.date == target_date]
+        if df.empty:
+            console.print(
+                f"[bold yellow]No buyback data found for stock {stock_code} on {target_date:%Y-%m-%d}.[/bold yellow]"
+            )
+            return
     
     # --- Grouping ---
     if period == 'year':
@@ -203,8 +223,11 @@ def show_summary(stock_code, period):
     elif period == 'month':
         group_by_col = df['日期'].dt.to_period('M')
         group_by_col.name = 'YearMonth'
+    elif period == 'date':
+        group_by_col = df['日期'].dt.date
+        group_by_col.name = 'Date'
     else:
-        console.print("[bold red]Invalid summary period. Use 'year' or 'month'.[/bold red]")
+        console.print("[bold red]Invalid summary period. Use 'year', 'month', or 'date'.[/bold red]")
         return
 
     summary_df = df.groupby(group_by_col).agg(
@@ -240,7 +263,7 @@ def main():
     """Main function to handle command-line arguments."""
     parser = argparse.ArgumentParser(
         description="Eastmoney Buyback Data Scraper and Analyzer.",
-        epilog="Example: python eastmoney_buyback.py summary 00700 year"
+        epilog="Examples: python eastmoney_buyback.py summary 00700 year | python eastmoney_buyback.py summary 00700 date 2026-01-15"
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
@@ -256,7 +279,8 @@ def main():
     # Summary command
     parser_summary = subparsers.add_parser("summary", help="Show summary of buyback data.")
     parser_summary.add_argument("code", type=str, help="Stock code (e.g., 00700)")
-    parser_summary.add_argument("period", type=str, choices=['year', 'month'], help="Summary period ('year' or 'month')")
+    parser_summary.add_argument("period", type=str, choices=['year', 'month', 'date'], help="Summary period ('year', 'month', or 'date')")
+    parser_summary.add_argument("target_date", nargs='?', type=parse_cli_date, help="Required when period is 'date'. Format: YYYY-MM-DD")
 
     args = parser.parse_args()
 
@@ -265,7 +289,11 @@ def main():
     elif args.command == "view":
         view_data(args.code, args.limit)
     elif args.command == "summary":
-        show_summary(args.code, args.period)
+        if args.period == "date" and args.target_date is None:
+            parser.error("summary period 'date' requires target_date in YYYY-MM-DD format")
+        if args.period != "date" and args.target_date is not None:
+            parser.error("target_date is only supported when summary period is 'date'")
+        show_summary(args.code, args.period, args.target_date)
 
 if __name__ == "__main__":
     main()

@@ -37,7 +37,12 @@ def print_summary(df, stock_code, period, summary_df, total_amount, total_quanti
     """
     Displays a rich summary including period-based aggregation and a grand total panel.
     """
-    period_str = '年度' if period == 'year' else '月度'
+    if period == 'year':
+        period_str = '年度'
+    elif period == 'month':
+        period_str = '月度'
+    else:
+        period_str = '指定日期'
     table = Table(
         title=f"[bold cyan]股票代码 {stock_code} - {period_str}回购汇总[/bold cyan]",
         box=ROUNDED,
