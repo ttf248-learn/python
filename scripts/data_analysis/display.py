@@ -33,16 +33,29 @@ def format_change(value):
     return f"[{color}]{value:+.2f}%[/{color}]"
 
 
-def print_summary(df, stock_code, period, summary_df, total_amount, total_quantity, total_avg_price):
+def print_summary(
+    df,
+    stock_code,
+    period,
+    summary_df,
+    total_amount,
+    total_quantity,
+    total_avg_price,
+    target_date=None,
+    period_label=None,
+):
     """
     Displays a rich summary including period-based aggregation and a grand total panel.
     """
     if period == 'year':
         period_str = '年度'
+        panel_title = '[bold]当前统计摘要[/bold]'
     elif period == 'month':
         period_str = '月度'
+        panel_title = '[bold]当前统计摘要[/bold]'
     else:
-        period_str = '指定日期'
+        period_str = period_label or (target_date.strftime('%Y-%m-%d') if target_date else '指定日期')
+        panel_title = f"[bold]{period_str} 统计摘要[/bold]"
     table = Table(
         title=f"[bold cyan]股票代码 {stock_code} - {period_str}回购汇总[/bold cyan]",
         box=ROUNDED,
@@ -88,7 +101,7 @@ def print_summary(df, stock_code, period, summary_df, total_amount, total_quanti
 
     summary_panel = Panel(
         summary_text,
-        title="[bold]全局统计摘要[/bold]",
+        title=panel_title,
         border_style="blue",
         expand=False
     )

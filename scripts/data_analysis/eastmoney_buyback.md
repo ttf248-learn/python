@@ -41,11 +41,13 @@ python scripts/data_analysis/eastmoney_buyback.py view 01810 --limit 25
 
 ### `summary`
 
-按年、月或指定日期汇总回购数据。
+按年、月汇总，或按“指定日期到最新数据”汇总回购数据。
 
 ```bash
 python scripts/data_analysis/eastmoney_buyback.py summary <stock_code> <year|month|date> [YYYY-MM-DD]
 ```
+
+`date` 模式表示从 `YYYY-MM-DD` 当天开始，一直到最新数据的汇总。
 
 示例：
 

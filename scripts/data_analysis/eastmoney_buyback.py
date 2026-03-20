@@ -8,7 +8,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from rich.console import Console
-from rich.progress import Progress
+from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # Import custom display functions
 from display import print_summary, print_data_view
@@ -107,19 +107,44 @@ def scrape_all_pages(stock_code, latest_date=None):
         total_pages = get_total_pages(soup)
         console.print(f"[green][OK][/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
 
-        with Progress(console=console) as progress:
-            task = progress.add_task(f"[cyan]Scraping {stock_code}...", total=total_pages)
+        if latest_date:
+            progress = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                TimeElapsedColumn(),
+                console=console,
+            )
+            task_total = None
+        else:
+            progress = Progress(
+                TextColumn("[progress.description]{task.description}"),
+                BarColumn(),
+                TaskProgressColumn(),
+                TimeRemainingColumn(),
+                console=console,
+            )
+            task_total = total_pages
+
+        with progress:
+            task = progress.add_task(f"[cyan]Scanning {stock_code}...", total=task_total)
 
             for page_num in range(1, total_pages + 1):
-                progress.update(task, advance=1, description=f"[cyan]Scraping page {page_num}/{total_pages}")
+                if latest_date:
+                    progress.update(task, description=f"[cyan]Checking page {page_num}")
+                else:
+                    progress.update(task, description=f"[cyan]Scraping page {page_num}/{total_pages}")
+
                 if page_num > 1:
                     page_url = f"{base_url}/buyback_{page_num}.html?code={stock_code}"
                     soup = scrape_page(session, page_url)
                     if not soup:
+                        if task_total is not None:
+                            progress.advance(task)
                         continue
 
                 table = soup.find('table', class_='table_striped')
                 if not table:
+                    if task_total is not None:
+                        progress.advance(task)
                     continue
                 
                 rows = table.find('tbody').find_all('tr')
@@ -129,7 +154,9 @@ def scrape_all_pages(stock_code, latest_date=None):
                     if len(cols) == 9:
                         date_str = cols[8]
                         if latest_date and datetime.strptime(date_str, '%Y-%m-%d').date() <= latest_date:
-                            console.print(f"\n[yellow]![/yellow] Reached existing data (date: {date_str}). Stopping incremental scrape.")
+                            console.print(
+                                f"\n[yellow]![/yellow] Reached local data boundary at {date_str}. Stopping incremental update."
+                            )
                             return pd.DataFrame(all_data)
 
                         page_has_new_data = True
@@ -144,6 +171,9 @@ def scrape_all_pages(stock_code, latest_date=None):
                             '日期': date_str,
                         }
                         all_data.append(data)
+
+                if task_total is not None:
+                    progress.advance(task)
                 
                 if not page_has_new_data and latest_date:
                     return pd.DataFrame(all_data)
@@ -194,6 +224,25 @@ def update_stock_data(stock_code):
     save_stock_data(combined_df, stock_code)
     return combined_df
 
+
+def build_daily_summary_data(df):
+    """Aggregates raw buyback records into one row per date for stable summary stats."""
+    daily_df = df.copy()
+    daily_df['日期'] = pd.to_datetime(daily_df['日期']).dt.normalize()
+
+    daily_df = daily_df.groupby('日期', as_index=False).agg(
+        回购总额港元=('回购总额(港元)', 'sum'),
+        回购数量股=('回购数量(股)', 'sum'),
+    )
+    daily_df.rename(
+        columns={
+            '回购总额港元': '回购总额(港元)',
+            '回购数量股': '回购数量(股)',
+        },
+        inplace=True,
+    )
+    return daily_df
+
 def show_summary(stock_code, period, target_date=None):
     """Shows a summary of buyback amounts for a period or a specific date."""
     df = update_stock_data(stock_code)
@@ -202,39 +251,43 @@ def show_summary(stock_code, period, target_date=None):
         console.print(f"[bold red]No data found or data is incomplete for stock {stock_code}.[/bold red]")
         return
 
-    df['日期'] = pd.to_datetime(df['日期'])
+    summary_source_df = build_daily_summary_data(df)
+
+    period_label = None
 
     if period == 'date':
         if target_date is None:
             console.print("[bold red]A target date is required when period is 'date'.[/bold red]")
             return
 
-        df = df[df['日期'].dt.date == target_date]
-        if df.empty:
+        summary_source_df = summary_source_df[summary_source_df['日期'].dt.date >= target_date]
+        if summary_source_df.empty:
             console.print(
-                f"[bold yellow]No buyback data found for stock {stock_code} on {target_date:%Y-%m-%d}.[/bold yellow]"
+                f"[bold yellow]No buyback data found for stock {stock_code} from {target_date:%Y-%m-%d} onward.[/bold yellow]"
             )
             return
+
+        end_date = summary_source_df['日期'].max().date()
+        period_label = f"{target_date:%Y-%m-%d} 至 {end_date:%Y-%m-%d}"
     
     # --- Grouping ---
     if period == 'year':
-        group_by_col = df['日期'].dt.year
+        group_by_col = summary_source_df['日期'].dt.year
         group_by_col.name = 'Year'
     elif period == 'month':
-        group_by_col = df['日期'].dt.to_period('M')
+        group_by_col = summary_source_df['日期'].dt.to_period('M')
         group_by_col.name = 'YearMonth'
     elif period == 'date':
-        group_by_col = df['日期'].dt.date
-        group_by_col.name = 'Date'
+        group_by_col = pd.Series(period_label, index=summary_source_df.index, name='DateRange')
     else:
         console.print("[bold red]Invalid summary period. Use 'year', 'month', or 'date'.[/bold red]")
         return
 
-    summary_df = df.groupby(group_by_col).agg(
+    summary_df = summary_source_df.groupby(group_by_col).agg(
         TotalAmount=('回购总额(港元)', 'sum'),
         TotalQuantity=('回购数量(股)', 'sum'),
-        BuybackDays=('日期', 'count'),  # Number of buyback days in the period
-        AvgDailyAmount=('回购总额(港元)', 'mean') # Average daily buyback amount
+        BuybackDays=('日期', 'size'),
+        AvgDailyAmount=('回购总额(港元)', 'mean')
     )
     # Use a small epsilon to avoid division by zero
     summary_df['WeightedAvgPrice'] = summary_df['TotalAmount'] / (summary_df['TotalQuantity'] + 1e-9)
@@ -245,12 +298,22 @@ def show_summary(stock_code, period, target_date=None):
 
 
     # --- Total Calculation ---
-    total_amount = df['回购总额(港元)'].sum()
-    total_quantity = df['回购数量(股)'].sum()
+    total_amount = summary_source_df['回购总额(港元)'].sum()
+    total_quantity = summary_source_df['回购数量(股)'].sum()
     total_avg_price = total_amount / total_quantity if total_quantity else 0
 
     # --- Use Rich for printing ---
-    print_summary(df, stock_code, period, summary_df, total_amount, total_quantity, total_avg_price)
+    print_summary(
+        summary_source_df,
+        stock_code,
+        period,
+        summary_df,
+        total_amount,
+        total_quantity,
+        total_avg_price,
+        target_date,
+        period_label,
+    )
 
 
 def view_data(stock_code, limit):
