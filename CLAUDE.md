@@ -176,8 +176,8 @@ logger.add(log_file_path, rotation="00:00", retention="30 days", level="DEBUG", 
 
 ### Working with Financial Data
 
-- Use `easymoney.py` as reference for API integration
-- 东方财富 API endpoint: `http://push2his.eastmoney.com/api/qt/stock/kline/get`
+- 港股回购分析使用东方财富回购页和报价页实时接口，不依赖历史 K 线接口
+- 东方财富报价页实时接口: `https://push2.eastmoney.com/api/qt/stock/get`
 - Technical indicators use pandas, numpy, scipy
 
 ### Working with OCR

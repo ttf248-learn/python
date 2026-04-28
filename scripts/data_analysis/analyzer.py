@@ -236,6 +236,7 @@ def calculate_signal(daily_df, basic_snapshot, latest_date):
         "prev_amount_30": prev_amount_30,
         "amount_90": amount_90,
         "acceleration_30": acceleration_30,
+        "latest_buyback_date": latest_buyback_date,
         "buyback_gap_days": buyback_gap_days,
         "current_price": current_price,
         "price_position_52": price_position_52,

@@ -108,13 +108,14 @@ def load_basic_data(stock_code):
     return _normalize_basic_frame(pd.read_csv(file_path))
 
 
-def save_basic_data(df, stock_code):
+def save_basic_data(df, stock_code, verbose=True):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = basics_cache_path(stock_code)
     output_df = _normalize_basic_frame(df)
     output_df["日期"] = output_df["日期"].dt.strftime("%Y-%m-%d")
     output_df.to_csv(file_path, index=False)
-    console.print(f"[green][OK][/green] Basic data saved to [bold]{file_path}[/bold]")
+    if verbose:
+        console.print(f"[green][OK][/green] Basic data saved to [bold]{file_path}[/bold]")
 
 
 def fetch_basic_snapshot(stock_code, stock_name=None):
@@ -181,12 +182,13 @@ def fetch_basic_snapshot(stock_code, stock_name=None):
     )
 
 
-def update_basic_data(stock_code, stock_name=None):
+def update_basic_data(stock_code, stock_name=None, verbose=True):
     """Load cached basics and upsert today's Eastmoney quote-page snapshot."""
     stock_code = normalize_stock_code(stock_code)
     cached_df = load_basic_data(stock_code)
 
-    console.print(f"Checking basic quote data for [bold]{stock_code}[/bold]...")
+    if verbose:
+        console.print(f"Checking basic quote data for [bold]{stock_code}[/bold]...")
     try:
         snapshot_df = _normalize_basic_frame(fetch_basic_snapshot(stock_code, stock_name))
     except Exception as exc:
@@ -197,5 +199,5 @@ def update_basic_data(stock_code, stock_name=None):
     combined_df["日期"] = pd.to_datetime(combined_df["日期"]).dt.normalize()
     combined_df.drop_duplicates(subset=["日期"], keep="last", inplace=True)
     combined_df.sort_values("日期", ascending=False, inplace=True)
-    save_basic_data(combined_df, stock_code)
+    save_basic_data(combined_df, stock_code, verbose=verbose)
     return combined_df

@@ -79,7 +79,7 @@ def get_total_pages(soup):
     return max_page
 
 
-def scrape_page(session, url, retries=3):
+def scrape_page(session, url, retries=3, verbose=True):
     """Fetches and parses a single page."""
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -92,26 +92,32 @@ def scrape_page(session, url, retries=3):
             response.encoding = 'utf-8'
             return BeautifulSoup(response.text, 'lxml')
         except requests.exceptions.RequestException as e:
-            console.print(f"[bold red]Error fetching {url} (attempt {i+1}/{retries}): {e}[/bold red]")
+            if verbose:
+                console.print(f"[bold red]Error fetching {url} (attempt {i+1}/{retries}): {e}[/bold red]")
     return None
 
 
-def scrape_all_pages(stock_code, latest_date=None):
+def scrape_all_pages(stock_code, latest_date=None, verbose=True):
     """Scrapes all buyback data pages for a given stock code with progress bar."""
     base_url = "https://hk.eastmoney.com"
     all_data = []
 
     with requests.Session() as session:
         page_url = f"{base_url}/buyback.html?code={stock_code}"
-        soup = scrape_page(session, page_url)
+        soup = scrape_page(session, page_url, verbose=verbose)
         if not soup:
-            console.print("[bold red]Failed to fetch initial page. Aborting.[/bold red]")
+            console.print("[yellow]Buyback data update failed. Using cached buyback data if available.[/yellow]")
             return pd.DataFrame()
 
         total_pages = get_total_pages(soup)
-        console.print(f"[green][OK][/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
+        if verbose:
+            console.print(f"[green][OK][/green] Found [bold]{total_pages}[/bold] pages for stock code [bold]{stock_code}[/bold].")
 
-        if latest_date:
+        if not verbose:
+            progress = None
+            task = None
+            task_total = None
+        elif latest_date:
             progress = Progress(
                 TextColumn("[progress.description]{task.description}"),
                 TimeElapsedColumn(),
@@ -128,24 +134,23 @@ def scrape_all_pages(stock_code, latest_date=None):
             )
             task_total = total_pages
 
-        with progress:
-            task = progress.add_task(f"[cyan]Scanning {stock_code}...", total=task_total)
-
+        def scan_pages(progress=None, task=None, task_total=None):
             for page_num in range(1, total_pages + 1):
-                if latest_date:
+                if progress is not None and latest_date:
                     progress.update(task, description=f"[cyan]Checking page {page_num}")
-                else:
+                elif progress is not None:
                     progress.update(task, description=f"[cyan]Scraping page {page_num}/{total_pages}")
 
+                page_soup = soup
                 if page_num > 1:
                     page_url = f"{base_url}/buyback_{page_num}.html?code={stock_code}"
-                    soup = scrape_page(session, page_url)
-                    if not soup:
+                    page_soup = scrape_page(session, page_url, verbose=verbose)
+                    if not page_soup:
                         if task_total is not None:
                             progress.advance(task)
                         continue
 
-                table = soup.find('table', class_='table_striped')
+                table = page_soup.find('table', class_='table_striped')
                 if not table:
                     if task_total is not None:
                         progress.advance(task)
@@ -158,9 +163,10 @@ def scrape_all_pages(stock_code, latest_date=None):
                     if len(cols) == 9:
                         date_str = cols[8]
                         if latest_date and datetime.strptime(date_str, '%Y-%m-%d').date() <= latest_date:
-                            console.print(
-                                f"\n[yellow]![/yellow] Reached local data boundary at {date_str}. Stopping incremental update."
-                            )
+                            if verbose:
+                                console.print(
+                                    f"\n[yellow]![/yellow] Reached local data boundary at {date_str}. Stopping incremental update."
+                                )
                             return pd.DataFrame(all_data)
 
                         page_has_new_data = True
@@ -182,45 +188,59 @@ def scrape_all_pages(stock_code, latest_date=None):
                 if not page_has_new_data and latest_date:
                     return pd.DataFrame(all_data)
 
+            return pd.DataFrame(all_data)
+
+        if progress is None:
+            return scan_pages()
+
+        with progress:
+            task = progress.add_task(f"[cyan]Scanning {stock_code}...", total=task_total)
+            return scan_pages(progress, task, task_total)
+
     return pd.DataFrame(all_data)
 
 
-def load_stock_data(stock_code):
+def load_stock_data(stock_code, verbose=True):
     """Loads existing data for a stock from a CSV file."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     if file_path.exists():
-        console.print(f"[green][OK][/green] Loading existing data from [bold]{file_path}[/bold]")
+        if verbose:
+            console.print(f"[green][OK][/green] Loading existing data from [bold]{file_path}[/bold]")
         df = pd.read_csv(file_path)
         if "日期" in df.columns:
             df["日期"] = pd.to_datetime(df["日期"])
         return df
     return pd.DataFrame()
 
-def save_stock_data(df, stock_code):
+def save_stock_data(df, stock_code, verbose=True):
     """Saves DataFrame to a CSV file."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     file_path = DATA_DIR / f"{stock_code}.csv"
     df.to_csv(file_path, index=False)
-    console.print(f"[green][OK][/green] Data saved to [bold]{file_path}[/bold]")
+    if verbose:
+        console.print(f"[green][OK][/green] Data saved to [bold]{file_path}[/bold]")
 
-def update_stock_data(stock_code):
+def update_stock_data(stock_code, verbose=True):
     """
     Fetches latest data, merges it with existing data, saves it, and returns the updated DataFrame.
     """
-    existing_df = load_stock_data(stock_code)
+    existing_df = load_stock_data(stock_code, verbose=verbose)
     latest_date = None
     if not existing_df.empty and '日期' in existing_df.columns:
         latest_date = pd.to_datetime(existing_df['日期']).max().date()
 
-    console.print(f"Checking for new data for [bold]{stock_code}[/bold]...")
-    new_df = scrape_all_pages(stock_code, latest_date)
+    if verbose:
+        console.print(f"Checking for new data for [bold]{stock_code}[/bold]...")
+    new_df = scrape_all_pages(stock_code, latest_date, verbose=verbose)
 
     if new_df.empty:
-        console.print("[yellow]No new data found. Using existing data.[/yellow]")
+        if verbose:
+            console.print("[yellow]No new data found. Using existing data.[/yellow]")
         return existing_df
 
-    console.print("[green][OK][/green] New data found, updating local store...")
+    if verbose:
+        console.print("[green][OK][/green] New data found, updating local store...")
     combined_df = pd.concat([new_df, existing_df], ignore_index=True)
     
     combined_df.drop_duplicates(subset=['日期'], keep='first', inplace=True)
@@ -228,7 +248,7 @@ def update_stock_data(stock_code):
     combined_df['日期'] = pd.to_datetime(combined_df['日期'])
     combined_df.sort_values(by='日期', ascending=False, inplace=True)
     
-    save_stock_data(combined_df, stock_code)
+    save_stock_data(combined_df, stock_code, verbose=verbose)
     return combined_df
 
 
@@ -329,13 +349,13 @@ def view_data(stock_code, limit):
     print_data_view(df, stock_code, limit)
 
 
-def analyze_stock(stock_code, window="1y", should_update=True, should_export=False):
+def analyze_stock(stock_code, window="1y", should_update=True, should_export=False, verbose=False):
     """Build and display a trading-oriented buyback analysis report."""
     stock_code = normalize_stock_code(stock_code)
     if should_update:
-        buyback_df = update_stock_data(stock_code)
+        buyback_df = update_stock_data(stock_code, verbose=verbose)
     else:
-        buyback_df = load_stock_data(stock_code)
+        buyback_df = load_stock_data(stock_code, verbose=verbose)
 
     if buyback_df.empty:
         console.print(f"[bold red]No buyback data found for stock {stock_code}.[/bold red]")
@@ -346,7 +366,7 @@ def analyze_stock(stock_code, window="1y", should_update=True, should_export=Fal
         stock_name = str(buyback_df.iloc[0]["股票名称"])
 
     if should_update:
-        basic_df = update_basic_data(stock_code, stock_name)
+        basic_df = update_basic_data(stock_code, stock_name, verbose=verbose)
     else:
         basic_df = load_basic_data(stock_code)
 
@@ -401,6 +421,11 @@ def main():
         action="store_true",
         help="Export analysis tables to CSV files in the data directory.",
     )
+    parser_analyze.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Show update progress and cache logs before the analysis report.",
+    )
 
     args = parser.parse_args()
 
@@ -415,7 +440,7 @@ def main():
             parser.error("target_date is only supported when summary period is 'date'")
         show_summary(args.code, args.period, args.target_date)
     elif args.command == "analyze":
-        analyze_stock(args.code, args.window, not args.no_update, args.export)
+        analyze_stock(args.code, args.window, not args.no_update, args.export, args.verbose)
 
 if __name__ == "__main__":
     main()

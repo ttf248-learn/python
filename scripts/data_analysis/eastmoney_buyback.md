@@ -62,7 +62,7 @@ python scripts/data_analysis/eastmoney_buyback.py summary 00700 date 2026-01-15
 输入港股代码后，更新回购缓存和当日基础行情快照，并输出中短线交易辅助报告。默认分析近 1 年数据。
 
 ```bash
-python scripts/data_analysis/eastmoney_buyback.py analyze <stock_code> [--window 1y|3y|all] [--no-update] [--export]
+python scripts/data_analysis/eastmoney_buyback.py analyze <stock_code> [--window 1y|3y|all] [--no-update] [--export] [--verbose]
 ```
 
 报告包含：
@@ -71,7 +71,11 @@ python scripts/data_analysis/eastmoney_buyback.py analyze <stock_code> [--window
 - 近 7 / 30 / 90 天回购强度
 - 当前价相对近期回购均价的位置
 - 成交额、总市值、港市值、市净率、换手率、52周价格区间
-- 月度和年度回购趋势
+- 近 7 / 30 / 90 天回购额、天数和均价
+- 最近一次回购日期和距离天数
+- 单屏仪表盘式趋势摘要，默认展示近 6 个月和近 2 年
+
+默认情况下，`analyze` 会隐藏常规抓取进度和缓存日志，让屏幕优先显示分析结果。需要排查网络、接口或缓存问题时，使用 `--verbose` 查看完整更新过程。
 
 基础行情说明：
 
@@ -86,6 +90,7 @@ python scripts/data_analysis/eastmoney_buyback.py analyze 01810
 python scripts/data_analysis/eastmoney_buyback.py analyze 00700 --window 1y
 python scripts/data_analysis/eastmoney_buyback.py analyze 01810 --no-update
 python scripts/data_analysis/eastmoney_buyback.py analyze 01810 --export
+python scripts/data_analysis/eastmoney_buyback.py analyze 01810 --verbose
 ```
 
 ## 打包 EXE
