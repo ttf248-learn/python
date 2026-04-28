@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+import sys
 
 import pandas as pd
 import requests
@@ -7,7 +8,8 @@ from rich.console import Console
 
 
 console = Console()
-DATA_DIR = Path(__file__).parent / "data"
+APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+DATA_DIR = APP_DIR / "data"
 DATA_SOURCE = "Eastmoney-QuotePage"
 BASICS_COLUMNS = [
     "日期",

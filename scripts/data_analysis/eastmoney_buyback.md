@@ -88,4 +88,25 @@ python scripts/data_analysis/eastmoney_buyback.py analyze 01810 --no-update
 python scripts/data_analysis/eastmoney_buyback.py analyze 01810 --export
 ```
 
+## 打包 EXE
+
+打包脚本位于 `scripts/data_analysis/build_exe.ps1`。推荐在项目根目录执行：
+
+```powershell
+.\scripts\data_analysis\build_exe.ps1
+```
+
+脚本内部会自动切换到项目根目录后再调用 PyInstaller，所以从其他目录执行脚本也能使用相同的相对路径。生成结果：
+
+- `dist/eastmoney_buyback_01810.exe`
+- `dist/data/`：exe 运行时的回购和基础行情缓存目录
+
+这个 exe 无参数启动时默认执行：
+
+```powershell
+python scripts/data_analysis/eastmoney_buyback.py analyze 01810
+```
+
+双击运行后会在报告结尾停留，显示 `Press Enter to exit...`，按回车退出。
+
 注意：回购数据只能反映公司资金动作和价格态度，不能单独作为买卖依据。报告用于辅助判断，需要结合基本面、市场环境和仓位管理。

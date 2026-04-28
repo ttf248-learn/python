@@ -1,6 +1,7 @@
 
 import argparse
 import re
+import sys
 from pathlib import Path
 from datetime import datetime
 
@@ -19,7 +20,8 @@ from quotes import load_basic_data, normalize_stock_code, update_basic_data
 console = Console()
 
 # Define the data directory relative to the script's location
-DATA_DIR = Path(__file__).parent / "data"
+APP_DIR = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).parent
+DATA_DIR = APP_DIR / "data"
 
 def parse_cli_date(date_str):
     """Parses a CLI date argument in YYYY-MM-DD format."""
