@@ -11,7 +11,9 @@ from rich.console import Console
 from rich.progress import BarColumn, Progress, TaskProgressColumn, TextColumn, TimeElapsedColumn, TimeRemainingColumn
 
 # Import custom display functions
-from display import print_summary, print_data_view
+from analyzer import build_analysis_report, export_analysis_report
+from display import print_analysis_report, print_summary, print_data_view
+from quotes import load_basic_data, normalize_stock_code, update_basic_data
 
 # Initialize Rich Console
 console = Console()
@@ -187,7 +189,10 @@ def load_stock_data(stock_code):
     file_path = DATA_DIR / f"{stock_code}.csv"
     if file_path.exists():
         console.print(f"[green][OK][/green] Loading existing data from [bold]{file_path}[/bold]")
-        return pd.read_csv(file_path)
+        df = pd.read_csv(file_path)
+        if "日期" in df.columns:
+            df["日期"] = pd.to_datetime(df["日期"])
+        return df
     return pd.DataFrame()
 
 def save_stock_data(df, stock_code):
@@ -322,11 +327,41 @@ def view_data(stock_code, limit):
     print_data_view(df, stock_code, limit)
 
 
+def analyze_stock(stock_code, window="1y", should_update=True, should_export=False):
+    """Build and display a trading-oriented buyback analysis report."""
+    stock_code = normalize_stock_code(stock_code)
+    if should_update:
+        buyback_df = update_stock_data(stock_code)
+    else:
+        buyback_df = load_stock_data(stock_code)
+
+    if buyback_df.empty:
+        console.print(f"[bold red]No buyback data found for stock {stock_code}.[/bold red]")
+        return
+
+    stock_name = None
+    if "股票名称" in buyback_df.columns and not buyback_df.empty:
+        stock_name = str(buyback_df.iloc[0]["股票名称"])
+
+    if should_update:
+        basic_df = update_basic_data(stock_code, stock_name)
+    else:
+        basic_df = load_basic_data(stock_code)
+
+    report = build_analysis_report(stock_code, buyback_df, basic_df, window)
+    print_analysis_report(report)
+
+    if should_export:
+        files = export_analysis_report(report, DATA_DIR)
+        for file_path in files:
+            console.print(f"[green][OK][/green] Analysis exported to [bold]{file_path}[/bold]")
+
+
 def main():
     """Main function to handle command-line arguments."""
     parser = argparse.ArgumentParser(
-        description="Eastmoney Buyback Data Scraper and Analyzer.",
-        epilog="Examples: python eastmoney_buyback.py summary 00700 year | python eastmoney_buyback.py summary 00700 date 2026-01-15"
+        description="Eastmoney Buyback Data Scraper and Analysis Assistant.",
+        epilog="Examples: python eastmoney_buyback.py analyze 01810 | python eastmoney_buyback.py summary 00700 year"
     )
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
@@ -345,6 +380,26 @@ def main():
     parser_summary.add_argument("period", type=str, choices=['year', 'month', 'date'], help="Summary period ('year', 'month', or 'date')")
     parser_summary.add_argument("target_date", nargs='?', type=parse_cli_date, help="Required when period is 'date'. Format: YYYY-MM-DD")
 
+    # Analyze command
+    parser_analyze = subparsers.add_parser("analyze", help="Analyze buyback data for trading assistance.")
+    parser_analyze.add_argument("code", type=str, help="Stock code (e.g., 01810)")
+    parser_analyze.add_argument(
+        "--window",
+        choices=["1y", "3y", "all"],
+        default="1y",
+        help="Analysis window (default: 1y)",
+    )
+    parser_analyze.add_argument(
+        "--no-update",
+        action="store_true",
+        help="Use local cached buyback and basic quote data without fetching updates.",
+    )
+    parser_analyze.add_argument(
+        "--export",
+        action="store_true",
+        help="Export analysis tables to CSV files in the data directory.",
+    )
+
     args = parser.parse_args()
 
     if args.command == "fetch":
@@ -357,6 +412,8 @@ def main():
         if args.period != "date" and args.target_date is not None:
             parser.error("target_date is only supported when summary period is 'date'")
         show_summary(args.code, args.period, args.target_date)
+    elif args.command == "analyze":
+        analyze_stock(args.code, args.window, not args.no_update, args.export)
 
 if __name__ == "__main__":
     main()
